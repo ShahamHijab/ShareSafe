@@ -4,9 +4,10 @@ A local-first screenshot redaction website built with Next.js, TypeScript, React
 
 ## Features
 
-- Responsive landing page and editor.
+- Three pages: a chooser at `/`, image redaction at `/image`, PDF redaction at `/pdf`.
+- Light and dark mode (follows your system by default; toggle in the header, remembered in this browser).
 - PNG/JPG/JPEG image redaction (15 MB limit; also limits images to 60 megapixels / 12,000 px per side).
-- PDF redaction module at `/pdf`: up to 40 MB and 40 pages, local page rendering and English OCR, the same sensitive-pattern checks, review/toggle/delete suggestions, manual redaction boxes, and protected PDF export.
+- PDF redaction at `/pdf`: up to 40 MB and 40 pages, local page rendering and English OCR, the same sensitive-pattern checks, review/toggle/delete suggestions, manual redaction boxes, and protected PDF export.
 - PDF export rebuilds a fresh PDF from flattened page images, burning selected redactions into pixels and excluding source metadata, attachments, scripts, forms, annotations, hidden layers, and source text objects.
 - English OCR using Tesseract.js in the browser with progress feedback and reset/cancel.
 - Pattern checks for email, Pakistani mobile and common landline formats, likely Pakistani address blocks, CNIC formats, IPv4 addresses, URLs, and common secret/token patterns.
@@ -46,7 +47,7 @@ The development server can be stopped with `Ctrl+C`.
 
 ## Usage
 
-1. Select or drop a PNG, JPG, or JPEG image (up to 15 MB).
+1. On the home page choose **Image**, then select or drop a PNG, JPG, or JPEG image (up to 15 MB).
 2. Wait for the English OCR scan to finish. OCR happens in the browser.
 3. Review suggested regions. Checked suggestions are selected for redaction; click a suggestion or checkbox to toggle it. Remove an item with the × button.
 4. Select **Draw a redaction**, then drag over any region to cover manually. Drawn boxes are added to the review list.
@@ -55,7 +56,7 @@ The development server can be stopped with `Ctrl+C`.
 
 ## PDF redaction
 
-1. Open **PDF redaction** from the image tool header or visit `/pdf`.
+1. Choose **PDF** on the home page or visit `/pdf`.
 2. Select a PDF (up to 40 MB and 40 pages). Pages are rendered and English OCR runs locally in the browser. The matching PDF.js worker may be fetched from a CDN; document bytes and OCR text are not sent with that request.
 3. Review suggestions page by page. Toggle or remove detections, or use **Draw redaction** to add manual boxes.
 4. Create and download the protected PDF. The exporter creates a new PDF and embeds each page as a raster image with selected black boxes already burned in. This is designed to remove source metadata and non-visible PDF objects, not just edit the document info dictionary.
@@ -64,9 +65,12 @@ The development server can be stopped with `Ctrl+C`.
 
 ## Architecture
 
-- `app/page.tsx` — image redaction experience.
-- `app/pdf/page.tsx` — PDF page rendering, local OCR, review UI, manual drawing, flattened PDF export and reset.
-- `app/globals.css` — responsive visual system and editor styles.
+- `app/page.tsx` — home page where you choose Image or PDF.
+- `app/image/page.tsx` — image redaction experience.
+- `app/pdf/page.tsx` — PDF page rendering, local OCR, review UI, manual drawing, flattened PDF export.
+- `components/` — shared header, theme toggle and icons.
+- `lib/download.ts` — one-click blob download helper.
+- `app/globals.css` — light/dark theme tokens and all styles.
 - `app/layout.tsx` — root layout and page metadata.
 - `lib/detectPatterns.ts` — deterministic OCR-word text matching and union of word bounding boxes.
 - `lib/imageExport.ts` — canvas-based opaque pixel redaction and PNG encoding.
