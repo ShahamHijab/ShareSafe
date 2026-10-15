@@ -5,7 +5,9 @@ A local-first screenshot redaction website built with Next.js, TypeScript, React
 ## Features
 
 - Responsive landing page and editor.
-- PNG/JPG/JPEG file picker and drag-and-drop (15 MB limit; also limits images to 60 megapixels / 12,000 px per side).
+- PNG/JPG/JPEG image redaction (15 MB limit; also limits images to 60 megapixels / 12,000 px per side).
+- PDF redaction module at `/pdf`: up to 40 MB and 40 pages, local page rendering and English OCR, the same sensitive-pattern checks, review/toggle/delete suggestions, manual redaction boxes, and protected PDF export.
+- PDF export rebuilds a fresh PDF from flattened page images, burning selected redactions into pixels and excluding source metadata, attachments, scripts, forms, annotations, hidden layers, and source text objects.
 - English OCR using Tesseract.js in the browser with progress feedback and reset/cancel.
 - Pattern checks for email, Pakistani mobile and common landline formats, likely Pakistani address blocks, CNIC formats, IPv4 addresses, URLs, and common secret/token patterns.
 - Select, deselect, or remove suggested redactions; draw manual rectangle redactions.
@@ -51,9 +53,19 @@ The development server can be stopped with `Ctrl+C`.
 5. Create the protected PNG and download it. Reopen the exported PNG to verify the selected regions are covered.
 6. Use **Start over** to clear the image and in-memory results.
 
+## PDF redaction
+
+1. Open **PDF redaction** from the image tool header or visit `/pdf`.
+2. Select a PDF (up to 40 MB and 40 pages). Pages are rendered and English OCR runs locally in the browser. The matching PDF.js worker may be fetched from a CDN; document bytes and OCR text are not sent with that request.
+3. Review suggestions page by page. Toggle or remove detections, or use **Draw redaction** to add manual boxes.
+4. Create and download the protected PDF. The exporter creates a new PDF and embeds each page as a raster image with selected black boxes already burned in. This is designed to remove source metadata and non-visible PDF objects, not just edit the document info dictionary.
+
+**Trade-off:** exported pages are rasterized and therefore lose searchable/selectable text, links, form fields, annotations, accessibility structure and vector quality. Detection is English-only and can miss details. Review every page and test the output in a separate PDF viewer before sharing. The source PDF is not modified.
+
 ## Architecture
 
-- `app/page.tsx` — landing page, file lifecycle, OCR orchestration, review UI, pointer-based manual drawing, export and reset.
+- `app/page.tsx` — image redaction experience.
+- `app/pdf/page.tsx` — PDF page rendering, local OCR, review UI, manual drawing, flattened PDF export and reset.
 - `app/globals.css` — responsive visual system and editor styles.
 - `app/layout.tsx` — root layout and page metadata.
 - `lib/detectPatterns.ts` — deterministic OCR-word text matching and union of word bounding boxes.
@@ -92,7 +104,9 @@ The development server can be stopped with `Ctrl+C`.
 - [ ] Verify unchecked detections are not painted in the export.
 - [ ] Reset during scan and after export; confirm the image/results clear.
 - [ ] Check the UI at desktop and mobile widths.
-- [ ] Inspect export metadata independently if metadata guarantees are important.
+- [ ] Inspect image export metadata independently if metadata guarantees are important.
+- [ ] Test PDFs with selectable text and scanned pages, multi-page documents, manual boxes, and toggled detections.
+- [ ] Inspect exported PDF metadata and confirm redactions cannot be removed or revealed. Confirm the expected rasterization trade-offs.
 
 ## Troubleshooting
 
@@ -109,7 +123,7 @@ The development server can be stopped with `Ctrl+C`.
 - No moving/resizing existing rectangles; delete and redraw a manual rectangle if placement needs correction.
 - No automated unit or browser end-to-end tests are included.
 - Metadata removal has not been independently verified.
-- No PDF, Urdu OCR, batch processing, extension, accounts, cloud storage, or deployment configuration.
+- No Urdu OCR, batch file processing, extension, accounts, cloud storage, or deployment configuration.
 
 ### Screenshot OCR improvements
 

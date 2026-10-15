@@ -319,10 +319,11 @@ export default function HomePage() {
           <span className="brand-mark"><ShieldIcon /></span><span>ShareSafe</span>
         </a>
         <nav className="header-nav" aria-label="Main navigation">
+          <a href="/pdf">PDF redaction</a>
           <a href="#how-it-works">How it works</a>
           <a href="#privacy">Privacy</a>
         </nav>
-        <a className="button button-small" href="#workspace">Protect an image <ArrowIcon /></a>
+        <a className="button button-small" href="/pdf">Protect a PDF ↗</a>
       </header>
 
       <section className="hero">
@@ -330,7 +331,7 @@ export default function HomePage() {
           <div className="eyebrow"><span className="eyebrow-dot" /> PRIVATE BY DESIGN</div>
           <h1>Clean screenshots<br /><span>before you share.</span></h1>
           <p>Find sensitive details, cover what matters, and export a fresh PNG — right in your browser.</p>
-          <a className="button" href="#workspace">Protect a screenshot <ArrowIcon /></a>
+          <a className="button" href="#workspace">Protect a screenshot <ArrowIcon /></a><a className="pdf-hero-link" href="/pdf">Working with a PDF? Open PDF redaction ↗</a>
           <div className="hero-note"><LockIcon /> Your image stays on this device. No account. No uploads.</div>
         </div>
         <div className="hero-art" aria-label="Illustration of a screenshot with sensitive information covered">
