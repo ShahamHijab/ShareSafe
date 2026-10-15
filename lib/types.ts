@@ -1,4 +1,4 @@
-export type Category = "Email" | "Pakistan phone" | "Pakistan address" | "CNIC" | "IP address" | "URL" | "Possible secret";
+export type Category = "Email" | "Pakistan phone" | "Pakistan address" | "Bank account" | "Person name" | "CNIC" | "IP address" | "URL" | "Possible secret";
 
 export type Rect = { x: number; y: number; width: number; height: number };
 
