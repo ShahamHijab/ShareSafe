@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, PointerEvent, useEffect, useRef, useState } from "react";
-import { createWorker } from "tesseract.js";
+import { createWorker, PSM } from "tesseract.js";
 import { Header } from "@/components/Header";
 import { DownloadIcon, LockIcon, PenIcon, RefreshIcon, UploadIcon } from "@/components/Icons";
 import { detectPatterns, type OCRWord } from "@/lib/detectPatterns";
@@ -115,7 +115,7 @@ export default function ImagePage() {
         return;
       }
       // Sparse-text mode is better for chat bubbles, captions and text scattered around screenshots.
-      await worker.setParameters({ tessedit_pageseg_mode: "11" });
+      await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
       const secondPass = await worker.recognize(canvas);
       if (generation !== scanGeneration.current) {
         if (activeWorker.current === worker) activeWorker.current = null;
