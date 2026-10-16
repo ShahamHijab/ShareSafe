@@ -3,7 +3,7 @@
 import { ChangeEvent, PointerEvent, useEffect, useRef, useState } from "react";
 import { createWorker } from "tesseract.js";
 import { Header } from "@/components/Header";
-import { DownloadIcon, LockIcon, PenIcon, RefreshIcon, UploadIcon } from "@/components/Icons";
+import { DownloadIcon, LockIcon, PenIcon, RefreshIcon, ShieldIcon, UploadIcon } from "@/components/Icons";
 import { detectPatterns, type OCRWord } from "@/lib/detectPatterns";
 import { downloadBlob } from "@/lib/download";
 import type { Detection, Rect } from "@/lib/types";
@@ -177,6 +177,8 @@ export default function PdfPage() {
           <div><h1>PDF redaction</h1><p>Scan every page, pick what to hide, download a clean copy.</p></div>
           {(pages.length > 0 || busy) && <button className="btn btn-ghost" onClick={reset}><RefreshIcon /> Start over</button>}
         </div>
+
+        <p className="metadata-note"><ShieldIcon /> Source metadata is removed from every export.</p>
 
         {!pages.length ? (
           <div className={`dropzone ${dragging ? "is-dragging" : ""}`}

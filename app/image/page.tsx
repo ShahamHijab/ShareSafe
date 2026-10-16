@@ -3,7 +3,7 @@
 import { ChangeEvent, DragEvent, PointerEvent, useEffect, useRef, useState } from "react";
 import { createWorker, PSM } from "tesseract.js";
 import { Header } from "@/components/Header";
-import { DownloadIcon, LockIcon, PenIcon, RefreshIcon, UploadIcon } from "@/components/Icons";
+import { DownloadIcon, LockIcon, PenIcon, RefreshIcon, ShieldIcon, UploadIcon } from "@/components/Icons";
 import { detectPatterns, type OCRWord } from "@/lib/detectPatterns";
 import { downloadBlob } from "@/lib/download";
 import { renderRedactedPNG } from "@/lib/imageExport";
@@ -260,6 +260,8 @@ export default function ImagePage() {
           <div><h1>Image redaction</h1><p>Drop it in. Tap what to hide. Download.</p></div>
           {imageSrc && <button className="btn btn-ghost" onClick={reset}><RefreshIcon /> Start over</button>}
         </div>
+
+        <p className="metadata-note"><ShieldIcon /> Source metadata is removed from every export.</p>
 
         {!imageSrc ? (
           <div className={`dropzone ${dragging ? "is-dragging" : ""}`}

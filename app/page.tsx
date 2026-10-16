@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Header } from "@/components/Header";
-import { ArrowIcon, LockIcon } from "@/components/Icons";
+import { ArrowIcon, LockIcon, ShieldIcon } from "@/components/Icons";
 
 export default function HomePage() {
   return (
@@ -40,6 +40,7 @@ export default function HomePage() {
         </div>
 
         <p className="privacy-line"><LockIcon /> No accounts. No uploads. Your files never leave this device.</p>
+        <p className="metadata-note"><ShieldIcon /> Source metadata is removed from every export.</p>
       </section>
     </main>
   );
