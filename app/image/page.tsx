@@ -4,16 +4,14 @@ import { ChangeEvent, DragEvent, PointerEvent, useEffect, useRef, useState } fro
 import { createWorker, PSM } from "tesseract.js";
 import { Header } from "@/components/Header";
 import { DownloadIcon, LockIcon, PenIcon, RefreshIcon, ShieldIcon, UploadIcon } from "@/components/Icons";
+import { categoryIcons } from "@/lib/categoryIcons";
+import { codeDetections, mergeCodeDetections, scanCodes, type ScanResult } from "@/lib/codeScan";
 import { detectPatterns, type OCRWord } from "@/lib/detectPatterns";
 import { downloadBlob } from "@/lib/download";
 import { renderRedactedPNG } from "@/lib/imageExport";
 import type { Detection, Rect } from "@/lib/types";
 
 const MAX_BYTES = 15 * 1024 * 1024;
-const categoryIcons: Record<string, string> = {
-  Email: "@", "Pakistan phone": "☎", "Pakistan address": "⌂", CNIC: "ID",
-  "IP address": "IP", URL: "↗", "Possible secret": "••",
-};
 
 export default function ImagePage() {
   const [fileName, setFileName] = useState("");
@@ -82,6 +80,18 @@ export default function ImagePage() {
       if (image.naturalWidth > 12000 || image.naturalHeight > 12000 || image.naturalWidth * image.naturalHeight > 60_000_000) {
         throw new Error("This image has very large dimensions. Choose an image under 60 megapixels.");
       }
+      // QR codes and barcodes carry payment links and tokens that OCR cannot read. This needs no network,
+      // so it runs first: a code is still found even if the OCR language data fails to download.
+      setMessage("Looking for QR codes and barcodes…");
+      let codeScan: ScanResult = { hits: [], barcodeEngine: "ready" };
+      try {
+        codeScan = await scanCodes(image, { isCancelled: () => generation !== scanGeneration.current });
+      } catch {
+        codeScan = { hits: [], barcodeEngine: "unavailable" };
+      }
+      if (generation !== scanGeneration.current) return;
+      const codeFound = codeDetections(codeScan.hits);
+      setMessage("Warming up the scanner…");
       const worker = await createWorker("eng", 1, {
         logger: (info) => {
           if (typeof info.progress === "number") setProgress(Math.round(info.progress * 100));
@@ -155,13 +165,15 @@ export default function ImagePage() {
           return sameText || (smallerArea > 0 && (iw * ih) / smallerArea >= 0.55);
         })
       );
-      const finalDetections = [...primaryDetections, ...supplemental];
+      const finalDetections = mergeCodeDetections([...primaryDetections, ...supplemental], codeFound);
       const wordCount = Math.max(primaryWords.length, sparseWords.length);
+      const codeNote = codeFound.length ? ` ${codeFound.length} ${codeFound.length === 1 ? "is a QR code or barcode" : "are QR codes or barcodes"}.` : "";
+      const engineNote = codeScan.barcodeEngine === "unavailable" ? " Barcode scanning couldn't start here, so only QR codes were checked." : "";
       setDetections(finalDetections);
       setStatus("ready");
-      setMessage(wordCount
-        ? `Scan done — ${finalDetections.length} spot${finalDetections.length === 1 ? "" : "s"} flagged. Tap any box to toggle it.`
-        : "No readable English text found. Draw boxes manually to cover anything.");
+      setMessage(wordCount || codeFound.length
+        ? `Scan done — ${finalDetections.length} spot${finalDetections.length === 1 ? "" : "s"} flagged.${codeNote} Tap any box to toggle it.${engineNote}`
+        : `No readable English text found. Draw boxes manually to cover anything.${engineNote}`);
     } catch (error) {
       if (generation !== scanGeneration.current) return;
       setStatus("error");

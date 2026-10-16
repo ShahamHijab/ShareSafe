@@ -1,4 +1,5 @@
 import { COMMON_ENGLISH } from "./englishWords";
+import { assessToken, trimToken } from "./entropy";
 import type { Category, Detection, Rect } from "./types";
 
 export type OCRWord = {
@@ -14,6 +15,40 @@ type Rule = {
 };
 
 const rules: Rule[] = [
+  // --- Provider-specific secrets. These come first because they are the most specific rules: a token
+  // that happens to contain a digit run (looks like a phone or CNIC) or sits inside a link (looks like
+  // a URL) should be labelled by what it is. The first rule to claim an OCR word's box wins.
+  {
+    category: "Stripe key",
+    // Secret and restricted keys, webhook signing secrets, and PaymentIntent/SetupIntent client secrets.
+    regex: /\b(?:(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}|whsec_[A-Za-z0-9]{20,}|(?:pi|seti)_[A-Za-z0-9]{10,}_secret_[A-Za-z0-9]{10,})\b/g,
+    confidence: "Pattern match",
+  },
+  {
+    category: "Stripe key",
+    // Publishable keys are designed to be public but still identify the account, so they are only a heuristic.
+    regex: /\bpk_(?:live|test)_[A-Za-z0-9]{16,}\b/g,
+    confidence: "Heuristic",
+  },
+  {
+    category: "Google key",
+    // API key (AIza...), OAuth client secret (GOCSPX-...), access token (ya29....), refresh token (1//0...).
+    regex: /\b(?:AIza[0-9A-Za-z_-]{35}|GOCSPX-[0-9A-Za-z_-]{20,}|ya29\.[0-9A-Za-z_-]{20,}|1\/\/0[0-9A-Za-z_-]{30,})(?![0-9A-Za-z_-])/g,
+    confidence: "Pattern match",
+  },
+  {
+    category: "Slack token",
+    // Bot/user/app/config tokens (xoxb-, xoxp-, xoxa-, xoxr-, xoxs-, xoxe.xoxp-, xapp-) and incoming-webhook URLs.
+    regex: /\b(?:xox[abposre](?:\.xox[abposr])?-[A-Za-z0-9-]{10,}|xapp-[A-Za-z0-9-]{20,}|https?:\/\/hooks\.slack\.com\/services\/T[A-Z0-9]{6,}\/B[A-Z0-9]{6,}\/[A-Za-z0-9]{16,})(?![A-Za-z0-9-])/g,
+    confidence: "Pattern match",
+  },
+  {
+    category: "JWT",
+    // header.payload.signature, each base64url. Both header and payload start with eyJ ({"). OCR sometimes
+    // leaves a space beside a dot, so whitespace is tolerated there only.
+    regex: /\beyJ[A-Za-z0-9_-]{5,}\s?\.\s?eyJ[A-Za-z0-9_-]{5,}\s?\.\s?[A-Za-z0-9_-]{10,}(?![A-Za-z0-9_-])/g,
+    confidence: "Pattern match",
+  },
   { category: "Email", regex: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, confidence: "Pattern match" },
   {
     category: "Pakistan phone",
@@ -453,6 +488,116 @@ function nameDetections(words: OCRWord[], existing: Detection[]): Detection[] {
     .filter((item) => !existing.some((d) => mostlyInside(item.rect, d.rect, 0.5)));
 }
 
+// ---------------------------------------------------------------------------
+// PEM / PGP private key blocks
+//
+// A key block spans many lines, and OCR reads each base64 line as one or two long words. Instead of
+// one regex over the whole text, find the "-----BEGIN ... PRIVATE KEY-----" line and then take the
+// lines that follow while they still look like key material, up to the END line. This also covers a
+// block cut off by the edge of the screenshot (no END line) and JSON-style keys where the whole block
+// is one line with literal "\\n" separators.
+// ---------------------------------------------------------------------------
+const PEM_BEGIN = /-{3,}\s*BEGIN\s+(?:[A-Z0-9]+\s+)*PRIVATE\s+KEY(?:\s+BLOCK)?\s*-{3,}/i;
+const PEM_END = /-{3,}\s*END\s+(?:[A-Z0-9]+\s+)*PRIVATE\s+KEY(?:\s+BLOCK)?\s*-{3,}/i;
+const PEM_HEADER_LINE = /^(?:Proc-Type|DEK-Info|Version|Comment|Charset)\s*:/i;
+
+function lineText(line: OCRWord[]): string {
+  return line.map((word) => word.text).join(" ").replace(/\s+/g, " ").trim();
+}
+
+function looksLikeKeyBody(text: string): boolean {
+  if (PEM_HEADER_LINE.test(text)) return true;
+  const parts = text.split(/\s+/).filter(Boolean);
+  const squashed = parts.join("");
+  // Key lines are one long unbroken token; OCR may split one into a couple of pieces, never into prose.
+  if (parts.length > 4 || squashed.length / parts.length < 8) return false;
+  const shortFinalLine = squashed.length >= 4 && squashed.endsWith("=");
+  if (squashed.length < 16 && !shortFinalLine) return false;
+  const base64 = (squashed.match(/[A-Za-z0-9+/=]/g) ?? []).length;
+  if (base64 / squashed.length < 0.8) return false; // tolerate a few OCR slips
+  return /[0-9+/=]/.test(squashed); // real base64 almost always has a digit or +/=; plain words don't
+}
+
+function privateKeyDetections(words: OCRWord[], existing: Detection[]): Detection[] {
+  const lines = lineGroups(words);
+  const found: OCRWord[][] = [];
+
+  for (let index = 0; index < lines.length; index++) {
+    const first = lineText(lines[index]);
+    if (!PEM_BEGIN.test(first)) continue;
+    const block: OCRWord[] = [...lines[index]];
+    let closed = PEM_END.test(first.replace(PEM_BEGIN, ""));
+    let bodyLines = 0;
+    let lastLine = index;
+    for (let next = index + 1; !closed && next < Math.min(lines.length, index + 200); next++) {
+      const text = lineText(lines[next]);
+      const above = union(lines[lastLine]);
+      const below = union(lines[next]);
+      if (below.y - (above.y + above.height) > above.height * 2.5) break; // a gap: a different part of the screen
+      if (PEM_END.test(text)) { block.push(...lines[next]); closed = true; lastLine = next; break; }
+      if (!looksLikeKeyBody(text)) break;
+      block.push(...lines[next]);
+      bodyLines++;
+      lastLine = next;
+    }
+    // A bare header reveals nothing, so only flag blocks that actually contain key material.
+    const sameLineBody = first.replace(PEM_BEGIN, "").trim().length >= 16;
+    if (closed || bodyLines > 0 || sameLineBody) {
+      found.push(block);
+      index = lastLine; // continue after the block
+    }
+  }
+
+  return found
+    .map((block, i) => ({
+      id: `Private key-${i}-${block[0].bbox.y0}`,
+      category: "Private key" as const,
+      text: lineText(block.slice(0, 5)).slice(0, 60) + (block.length > 5 ? "…" : ""),
+      confidence: "Pattern match" as const,
+      rect: union(block),
+      selected: true,
+    }))
+    .filter((item) => !existing.some((d) => d.category === item.category && mostlyInside(item.rect, d.rect)));
+}
+
+// ---------------------------------------------------------------------------
+// Entropy check: flag long random-looking tokens that no named pattern recognised
+// (custom API keys, signing secrets, session IDs). It runs last and never overrides a specific match.
+// ---------------------------------------------------------------------------
+function entropyDetections(words: OCRWord[], existing: Detection[]): Detection[] {
+  const found: Detection[] = [];
+  for (const line of lineGroups(words)) {
+    const context = lineText(line);
+    for (const word of line) {
+      // "api_key=Zx9..." arrives as one OCR word: judge the value, and cover only the value's share of the box.
+      const assignment = /^([A-Za-z_][\w.-]*)[=:](.+)$/.exec(word.text);
+      const candidate = assignment && !assignment[2].startsWith("//") ? assignment[2] : word.text;
+      const verdict = assessToken(candidate, context);
+      if (!verdict.random) continue;
+
+      const total = Math.max(1, word.text.length);
+      const offset = candidate === word.text ? 0 : word.text.length - candidate.length;
+      const width = word.bbox.x1 - word.bbox.x0;
+      const rect: Rect = {
+        x: word.bbox.x0 + (offset / total) * width,
+        y: word.bbox.y0,
+        width: Math.max(1, ((total - offset) / total) * width),
+        height: word.bbox.y1 - word.bbox.y0,
+      };
+      if (existing.some((d) => mostlyInside(rect, d.rect, 0.5)) || found.some((d) => mostlyInside(rect, d.rect, 0.5))) continue;
+      found.push({
+        id: `High-entropy string-${found.length}-${Math.round(rect.y)}-${Math.round(rect.x)}`,
+        category: "High-entropy string",
+        text: trimToken(candidate),
+        confidence: "Heuristic",
+        rect,
+        selected: true,
+      });
+    }
+  }
+  return found;
+}
+
 export function detectPatterns(words: OCRWord[]): Detection[] {
   const usable = words.filter((word) => word.text.trim());
   const text = usable.map((word) => word.text).join(" ");
@@ -494,8 +639,15 @@ export function detectPatterns(words: OCRWord[]): Detection[] {
     if (detections[i].category === "Bank account" && masked.some((m) => mostlyInside(detections[i].rect, m.rect))) detections.splice(i, 1);
   }
   detections.push(...masked.filter((m) => !detections.some((d) => mostlyInside(m.rect, d.rect))));
+  // A key block swallows any smaller matches the other rules made inside it (stray digit runs, URLs...).
+  const keyBlocks = privateKeyDetections(usable, detections);
+  for (let i = detections.length - 1; i >= 0; i--) {
+    if (keyBlocks.some((block) => mostlyInside(detections[i].rect, block.rect))) detections.splice(i, 1);
+  }
+  detections.push(...keyBlocks);
   detections.push(...addressDetections(usable, detections));
   detections.push(...nameDetections(usable, detections));
+  detections.push(...entropyDetections(usable, detections));
   return detections;
 }
 

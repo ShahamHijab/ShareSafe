@@ -4,6 +4,8 @@ import { ChangeEvent, PointerEvent, useEffect, useRef, useState } from "react";
 import { createWorker } from "tesseract.js";
 import { Header } from "@/components/Header";
 import { DownloadIcon, LockIcon, PenIcon, RefreshIcon, ShieldIcon, UploadIcon } from "@/components/Icons";
+import { categoryIcons } from "@/lib/categoryIcons";
+import { codeDetections, mergeCodeDetections, scanCodes } from "@/lib/codeScan";
 import { detectPatterns, type OCRWord } from "@/lib/detectPatterns";
 import { downloadBlob } from "@/lib/download";
 import type { Detection, Rect } from "@/lib/types";
@@ -18,10 +20,6 @@ type PageData = {
 
 const MAX_BYTES = 40 * 1024 * 1024;
 const MAX_PAGES = 40;
-const categoryIcons: Record<string, string> = {
-  Email: "@", "Pakistan phone": "☎", "Pakistan address": "⌂", CNIC: "ID",
-  "IP address": "IP", URL: "↗", "Possible secret": "••",
-};
 
 export default function PdfPage() {
   const [fileName, setFileName] = useState("");
@@ -64,6 +62,7 @@ export default function PdfPage() {
       const worker = await createWorker("eng", 1);
       workerRef.current = worker;
       const result: PageData[] = [];
+      let barcodeEngineDown = false;
       for (let pageNo = 1; pageNo <= pdf.numPages; pageNo++) {
         if (run !== generation.current) { await worker.terminate(); return; }
         setProgress(`Scanning page ${pageNo} of ${pdf.numPages}…`);
@@ -75,19 +74,30 @@ export default function PdfPage() {
         if (!ctx) throw new Error("Could not render a PDF page.");
         ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
         await page.render({ canvasContext: ctx, viewport, background: "#ffffff" }).promise;
+        // QR codes and barcodes on the page, found from pixels (OCR cannot read them).
+        let codes: Detection[] = [];
+        try {
+          const scan = await scanCodes(canvas, { isCancelled: () => run !== generation.current });
+          if (scan.barcodeEngine === "unavailable") barcodeEngineDown = true;
+          codes = codeDetections(scan.hits).map((d) => ({ ...d, id: `p${pageNo}-${d.id}` }));
+        } catch { barcodeEngineDown = true; }
         const ocr = await worker.recognize(canvas);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const words: OCRWord[] = (ocr.data.words ?? []).filter((w: any) => w.text.trim()).map((w: any) => ({
           text: w.text.trim(), bbox: { x0: w.bbox.x0, y0: w.bbox.y0, x1: w.bbox.x1, y1: w.bbox.y1 },
         }));
-        const found = detectPatterns(words).map((d, i) => ({ ...d, id: `p${pageNo}-${i}-${d.id}`, selected: true }));
+        const textFound = detectPatterns(words).map((d, i) => ({ ...d, id: `p${pageNo}-${i}-${d.id}`, selected: true }));
+        const found = mergeCodeDetections(textFound, codes);
         result.push({ number: pageNo, width: canvas.width, height: canvas.height, canvas, detections: found });
       }
       await worker.terminate(); workerRef.current = null;
       if (run !== generation.current) return;
       setPages(result);
       const total = result.reduce((n, p) => n + p.detections.length, 0);
-      setProgress(`Scan done — ${total} spot${total === 1 ? "" : "s"} flagged across ${result.length} page${result.length === 1 ? "" : "s"}.`);
+      const codeTotal = result.reduce((n, p) => n + p.detections.filter((d) => d.category === "QR code" || d.category === "Barcode").length, 0);
+      setProgress(`Scan done — ${total} spot${total === 1 ? "" : "s"} flagged across ${result.length} page${result.length === 1 ? "" : "s"}.` +
+        (codeTotal ? ` ${codeTotal} ${codeTotal === 1 ? "is a QR code or barcode" : "are QR codes or barcodes"}.` : "") +
+        (barcodeEngineDown ? " Barcode scanning couldn't start here, so only QR codes were checked." : ""));
     } catch (e) {
       if (run === generation.current) setError(e instanceof Error ? e.message : "Could not open this PDF.");
     } finally { if (run === generation.current) setBusy(false); }
